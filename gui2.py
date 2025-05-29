@@ -69,9 +69,14 @@ def start_server(app_worker):
 
 class MplCanvas(QWidget):
     clicked = pyqtSignal(float, float)
+    newScale = pyqtSignal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+
+        # Load the pixel positions and don't scale
+        self.pixel_positions = []
+        self.to_scale = False
 
         self.plotWidget = pg.PlotWidget(background='w')
         self.marker = [1, 1]
@@ -204,6 +209,31 @@ class MplCanvas(QWidget):
 
         self.img.setOpacity(0.6)
         self.plotWidget.addItem(self.img)
+
+    def record_scale_point(self, pixel_x, pixel_y):
+        """
+        Records a scale point where the user clicks on the canvas.
+        """
+        # Store the pixel positions as pairs
+        self.pixel_positions.append((pixel_x, pixel_y))
+
+        # Debug: Print the values
+        print(f"Recorded Pixel: ({pixel_x}, {pixel_y})")
+
+        # If we have two scale points, calculate the transformation matrix
+        if len(self.pixel_positions) == 2:
+            self.calculate_scale()
+
+    def calculate_scale(self):
+        (x1_pixel, y1_pixel), (x2_pixel, y2_pixel) = self.pixel_positions
+        self.scale = self.scale/abs((x1_pixel - x2_pixel))
+        self.newScale.emit(self.scale)
+        self.newScale.connect(self.ui.scaler.setValue(self.scale))
+
+    def scaling(self):
+        self.pixel_positions.clear()
+        self.to_scale = True
+        print("Click two points to scale...")
         
     def setscale(self, value):
         self.scale = value
@@ -227,31 +257,41 @@ class MplCanvas(QWidget):
         self.have_bounds = True
 
     def on_click(self, e):
-        pos = e.scenePos()
-        mousePoint = self.plotWidget.getPlotItem().vb.mapSceneToView(pos)
-        x = mousePoint.x()
-        y = mousePoint.y()
-        self.hull_scatter.addPoints([x], [y], brush=pg.mkBrush("#c402cf"))
-        self.hull.append([x, y])
-        if x > self.xmax:
-            self.xmax = x
-        if y > self.ymax:
-            self.ymax = y
-        if x < self.xmin:
-            self.xmin = x
-        if y < self.ymin:
-            self.ymin = y
-        if x is None or y is None:
-            return  # Ignore clicks outside axes
-        self.clicked.emit(x, y)
+        if not self.to_scale:
+            pos = e.scenePos()
+            mousePoint = self.plotWidget.getPlotItem().vb.mapSceneToView(pos)
+            x = mousePoint.x()
+            y = mousePoint.y()
+            self.hull_scatter.addPoints([x], [y], brush=pg.mkBrush("#c402cf"))
+            self.hull.append([x, y])
+            if x > self.xmax:
+                self.xmax = x
+            if y > self.ymax:
+                self.ymax = y
+            if x < self.xmin:
+                self.xmin = x
+            if y < self.ymin:
+                self.ymin = y
+            if x is None or y is None:
+                return  # Ignore clicks outside axes
+            self.clicked.emit(x, y)
+            return
+        else:
+            pos = e.scenePos()
+            mousePoint = self.plotWidget.getPlotItem().vb.mapSceneToView(pos)
+            x = mousePoint.x()
+            y = mousePoint.y()
+            self.record_scale_point(x, y)
+            if len(self.pixel_positions) >= 2:
+                self.to_scale = False
 
     def plot_motor_bounds(self):
         pass
 
-
-
     def clear(self):
         self.scatter.clear()
+
+
 
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
@@ -318,11 +358,12 @@ class Worker(QObject):
 class CalibrationManager(QObject):
     calibration_updated = pyqtSignal(object)  # Emits self or a dict with calibration info
 
-    def __init__(self, canvas, raster_manager):
+    def __init__(self, canvas, raster_manager, UI):
         super().__init__()
 
         self.canvas = canvas
         self.raster_manager = raster_manager
+        self.ui = UI
 
         # Initialize the pixel and motor positions
         self.pixel_positions = []
@@ -336,6 +377,7 @@ class CalibrationManager(QObject):
 
         self.calibration_updated.connect(self.raster_manager.set_calibration)
         self.calibration_updated.connect(self.canvas.plot_motor_bounds)
+        self.calibration_updated.connect(self.ui.show_calibration)
 
 
     def record_calibration_point(self, pixel_x, pixel_y):
@@ -454,6 +496,8 @@ class CalibrationManager(QObject):
 
         self.calibration_updated.emit(self)
 
+    def set_calibration
+
     def handle_click(self, x, y):
         if not self.to_calibrate:
             return
@@ -466,9 +510,11 @@ class UI(QMainWindow):
     exposureChanged = pyqtSignal(float)
     scaleChanged = pyqtSignal(float)
     calibrateSignal = pyqtSignal()
+    calibrationChanged = pyqtSignal(object)
     resetSignal = pyqtSignal()
     clearSignal = pyqtSignal()
     useoldSignal = pyqtSignal()
+    scaleSignal = pyqtSignal()
 
     def __init__(self):
 
@@ -513,9 +559,24 @@ class UI(QMainWindow):
 
         # Calibration Values
         self.yoffsetvalue = self.findChild(QDoubleSpinBox, "yoffset")
+        self.yoffsetvalue.setValue(0)
+        self.yoffsetvalue.valueChanged.connect(self.calibrationChanged.emit)
+
         self.yscalevalue = self.findChild(QDoubleSpinBox, "yscale")
+        self.yscalevalue.setValue(1)
+        self.yscalevalue.valueChanged.connect(self.calibrationChanged.emit)
+
         self.xoffsetvalue = self.findChild(QDoubleSpinBox, "xoffset")
+        self.xoffsetvalue.setValue(0)
+        self.xoffsetvalue.valueChanged.connect(self.calibrationChanged.emit)
+
         self.xscalevalue = self.findChild(QDoubleSpinBox, "xscale")
+        self.xscalevalue.setValue(1)
+        self.xscalevalue.valueChanged.connect(self.calibrationChanged.emit)
+
+        self.calibrationChanged.connect(self.calibration_manager.setcalibration)
+
+
 
         # Image Scaler
         self.scaler = self.findChild(QDoubleSpinBox, "scaleImage")
@@ -528,6 +589,11 @@ class UI(QMainWindow):
         self.exposure.setValue(3)
         self.exposure.valueChanged.connect(self.exposureChanged.emit)
         self.exposureChanged.connect(self.canvas.setexposure)
+
+        # Set the scale
+        self.scaleButton = self.findChild(QPushButton, "scaleButton")
+        self.scaleButton.clicked.connect(self.scaleSignal.emit)
+        self.scaleSignal.connect(self.canvas.scaling)
 
         # Bounds for square raster
         self.x_low_spinbox = self.findChild(QDoubleSpinBox, "xlow")
@@ -608,6 +674,12 @@ class UI(QMainWindow):
         self.resetconvexhull.clicked.connect(self.reset_hull)
         
         self.show()
+
+    def show_calibration(self, calibration_manager):
+        self.yoffsetvalue.setValue(calibration_manager.offset_y)
+        self.yscalevalue.setValue(calibration_manager.scale_y)
+        self.xoffsetvalue.setValue(calibration_manager.offset_x)
+        self.xscalevalue.setValue(calibration_manager.scale_x)
 
     def get_worker(self):
         return self.worker
