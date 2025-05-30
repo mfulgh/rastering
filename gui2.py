@@ -230,7 +230,7 @@ class MplCanvas(QWidget):
         (x1_pixel, y1_pixel), (x2_pixel, y2_pixel) = self.pixel_positions
         self.scale = self.scale/abs((x1_pixel - x2_pixel))
         self.newScale.emit(self.scale)
-        self.newScale.connect(self.ui.scaler.setValue(self.scale))
+        #self.newScale.connect(self.ui.scaler.setValue(self.scale))
 
     def scaling(self):
         self.pixel_positions.clear()
@@ -292,8 +292,6 @@ class MplCanvas(QWidget):
 
     def clear(self):
         self.scatter.clear()
-
-
 
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
@@ -359,7 +357,7 @@ class Worker(QObject):
         self.mpl_instance.marker[1] = last_y
 
 class CalibrationManager(QObject):
-    calibration_updated = pyqtSignal(object)  # Emits self or a dict with calibration info
+    calibration_updated = pyqtSignal(object)
 
     def __init__(self, canvas, raster_manager, UI):
         super().__init__()
@@ -499,6 +497,19 @@ class CalibrationManager(QObject):
 
         self.calibration_updated.emit(self)
 
+    def setyoffset(self, value):
+        self.offset_y = value
+
+    def setyscale(self, value):
+        self.scale_y = value
+
+    def setxoffset(self, value):
+        self.offset_x = value
+
+    def setxscale(self, value):
+        self.scale_x = value
+    
+    
     def setcalibration(self, ui):
         self.scale_x = ui.xscalevalue.value
         self.scale_y = ui.yscalevalue.value
@@ -516,8 +527,11 @@ class UI(QMainWindow):
     stop_signal = pyqtSignal()
     exposureChanged = pyqtSignal(float)
     scaleChanged = pyqtSignal(float)
+    xscaleChanged = pyqtSignal(float)
+    yscaleChanged = pyqtSignal(float)
+    xoffsetChanged = pyqtSignal(float)
+    yoffsetChanged = pyqtSignal(float)
     calibrateSignal = pyqtSignal()
-    calibrationChanged = pyqtSignal(object)
     resetSignal = pyqtSignal()
     clearSignal = pyqtSignal()
     useoldSignal = pyqtSignal()
@@ -531,7 +545,8 @@ class UI(QMainWindow):
         self.worker = Worker(self.canvas)
         self.calibration_manager = CalibrationManager(self.canvas, self.worker.raster_manager)
         
-        self.calibration_manager.calibration_updated.connect(self.show_calibration)
+        #self.calibration_manager.calibration_updated.connect(self.show_calibration)
+        self.canvas.newScale.connect(self.show_scale)
         self.canvas.clicked.connect(self.handle_click)
 
         self.have_paths = False
@@ -567,22 +582,24 @@ class UI(QMainWindow):
         # Calibration Values
         self.yoffsetvalue = self.findChild(QDoubleSpinBox, "yoffset")
         self.yoffsetvalue.setValue(0)
-        self.yoffsetvalue.valueChanged.connect(self.calibrationChanged.emit)
+        self.yoffsetvalue.valueChanged.connect(self.yoffsetChanged.emit)
+        self.yoffsetChanged.connect(self.calibration_manager.setyoffset)
 
         self.yscalevalue = self.findChild(QDoubleSpinBox, "yscale")
         self.yscalevalue.setValue(1)
-        self.yscalevalue.valueChanged.connect(self.calibrationChanged.emit)
+        self.yscalevalue.valueChanged.connect(self.yscaleChanged.emit)
+        self.yoffsetChanged.connect(self.calibration_manager.setyscale)
 
         self.xoffsetvalue = self.findChild(QDoubleSpinBox, "xoffset")
         self.xoffsetvalue.setValue(0)
-        self.xoffsetvalue.valueChanged.connect(self.calibrationChanged.emit)
+        self.xoffsetvalue.valueChanged.connect(self.xoffsetChanged.emit)
+        self.yoffsetChanged.connect(self.calibration_manager.setxoffset)
 
         self.xscalevalue = self.findChild(QDoubleSpinBox, "xscale")
         self.xscalevalue.setValue(1)
-        self.xscalevalue.valueChanged.connect(self.calibrationChanged.emit)
-        
-        self.calibrationChanged.connect(self.calibration_manager.setcalibration)
-
+        self.xscalevalue.valueChanged.connect(self.xscaleChanged.emit)
+        self.yoffsetChanged.connect(self.calibration_manager.setxscale)
+    
         # Image Scaler
         self.scaler = self.findChild(QDoubleSpinBox, "scaleImage")
         self.scaler.setValue(0.002)
@@ -686,18 +703,15 @@ class UI(QMainWindow):
         self.xoffsetvalue.setValue(calibration_manager.offset_x)
         self.xscalevalue.setValue(calibration_manager.scale_x)
 
+    def show_scale(self, val):
+        self.scale.setValue(val)
+
     def get_worker(self):
         return self.worker
     
     def handle_click(self, x, y):
         self.x.setValue(x)
         self.y.setValue(y)
-
-    def update_calibration_display(self, calibration_manager):
-        self.xscalevalue.setValue(calibration_manager.scale_x)
-        self.yscalevalue.setValue(calibration_manager.scale_y)
-        self.xoffsetvalue.setValue(calibration_manager.offset_x)
-        self.yoffsetvalue.setValue(calibration_manager.offset_y)
     
     def define_hull(self, hull):
         hull = self.canvas.hull
