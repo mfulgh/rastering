@@ -568,6 +568,7 @@ class UI(QMainWindow):
     useoldSignal = pyqtSignal()
     scaleSignal = pyqtSignal()
     changeRasterAlgorithm = pyqtSignal()
+    rasterPathSignal = pyqtSignal(list)
 
     def __init__(self):
 
@@ -727,6 +728,9 @@ class UI(QMainWindow):
         self.resetconvexhull = self.findChild(QPushButton, "convex_hull_reset")
         self.convexhull.clicked.connect(self.define_hull)
         self.resetconvexhull.clicked.connect(self.reset_hull)
+
+        # Connect convex raster path signal to raster manager
+        self.rasterPathSignal.connect(self.worker.raster_manager.update_motors)
         
         self.show()
 
@@ -763,7 +767,8 @@ class UI(QMainWindow):
             if self.in_hull(pt):
                 self.raster[0].append(pt[0])
                 self.raster[1].append(pt[1])
-        self.worker.raster_manager.rasterpath = self.raster
+        #self.worker.raster_manager.rasterpath = self.raster
+        self.rasterPathSignal.emit(self.raster)
         self.canvas.convexpath = self.hull_scatter = pg.ScatterPlotItem(size=10)
         self.canvas.convexpath.addPoints(self.raster[0], self.raster[1], brush=pg.mkBrush("#dd68e3"))
         self.canvas.plotWidget.addItem(self.canvas.convexpath)
