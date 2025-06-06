@@ -335,9 +335,8 @@ class Worker(QObject):
         self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries=boundaries, xstep=xstep, ystep=ystep)
         
     def do_work(self):
-        #while self.running:
-            #time.sleep(0.5)
-        if self.running:
+        while self.running:
+            time.sleep(0.5)
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
             last_y = self.raster_manager.get_current_y()
@@ -346,7 +345,17 @@ class Worker(QObject):
             self.mpl_instance.needs_update = False
             self.mpl_instance.update_plot()
                     
-        #self.finished.emit()
+        self.finished.emit()
+
+    def do_work_manual(self):
+        if self.running:
+            self.raster_manager.update_motors()
+            last_x = self.raster_manager.get_current_x()
+            last_y = self.raster_manager.get_current_y()
+            self.mpl_instance.marker[0] = last_x
+            self.mpl_instance.marker[1] = last_y
+            self.mpl_instance.needs_update = False
+            self.mpl_instance.update_plot()
 
     def change_raster_algorithm(self):
         try:
@@ -576,7 +585,7 @@ class UI(QMainWindow):
 
         self.canvas = MplCanvas()
         self.worker = Worker(self.canvas)
-        self.calibration_manager = CalibrationManager(self.canvas, self.worker.raster_manager)
+        self.calibration_manager = CalibrationManager(self.canvas, self.worker.raster_manager, self)
         
         #self.calibration_manager.calibration_updated.connect(self.show_calibration)
         self.canvas.newScale.connect(self.show_scale)
