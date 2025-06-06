@@ -292,6 +292,7 @@ class MplCanvas(QWidget):
 
     def clear(self):
         self.scatter.clear()
+        self.hull_scatter.clear()
 
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
