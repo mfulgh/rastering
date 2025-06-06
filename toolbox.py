@@ -537,11 +537,11 @@ class ConvexHullRaster(RasterManager):
         super().__init__(device_x, device_y, boundaries, xstep, ystep)
         self.index = 0
     
-    def update_motors(self):
+    def update_motors(self, path):
         time.sleep(0.5)
-        if self.index < len(self.rasterpath[0]):
-            xpos_next = self.rasterpath[0][self.index]
-            ypos_next = self.rasterpath[1][self.index]
+        if self.index < len(path[0]):
+            xpos_next = path[0][self.index]
+            ypos_next = path[1][self.index]
             self.moveTo(xpos_next, ypos_next)
             print("Moving to ({:.4f}, {:.4f})".format(xpos_next, ypos_next))
             self.index += 1
