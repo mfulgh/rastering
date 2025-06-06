@@ -54,7 +54,7 @@ def start_server(app_worker):
         elif connection == "laser_raster_y_coord":
             worker.raster_manager.moveY(float(setpoint_value))
         elif connection == "move_to_next":
-            worker.do_work()
+            worker.do_work_manual()
 
     def GET_VALUE(connection):
         worker = app_worker
