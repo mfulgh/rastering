@@ -331,7 +331,7 @@ class Worker(QObject):
 
         device_x = KCube("27268551", name="X")
         device_y = KCube("27268560", name="Y")
-        
+             
         self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries=boundaries, xstep=xstep, ystep=ystep)
         
     def do_work(self):
@@ -347,6 +347,36 @@ class Worker(QObject):
             self.mpl_instance.update_plot()
                     
         #self.finished.emit()
+
+    def change_raster_algorithm(self):
+        try:
+            algo = self.dropbox.currentText()
+            print(f"Changed algorithm to {algo}.")
+
+            device_x = self.raster_manager.device_x
+            device_y = self.raster_manager.device_y
+            boundaries = self.raster_manager.boundaries
+            xstep = self.raster_manager.xstep_size
+            ystep = self.raster_manager.ystep_size
+            x_direction = self.raster_manager.x_direction
+            y_direction = self.raster_manager.y_direction
+        
+            if algo == "Square Raster X":
+                self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries, xstep, ystep)
+            elif algo == "Square Raster Y":
+                self.raster_manager = ArrayPatternRasterY(device_x, device_y, boundaries, xstep, ystep)
+            elif algo == "Spiral Raster":
+                self.raster_manager = SpiralRaster(device_x, device_y, boundaries, radius, step, alpha, del_alpha)
+            elif algo == "Convex Hull Raster":
+                self.raster_manager = ConvexHullRaster(device_x, device_y, boundaries, xstep, ystep)
+            else:
+                raise RuntimeWarning
+        
+            self.raster_manager.x_direction = x_direction
+            self.raster_manager.y_direction = y_direction
+        
+        except AttributeError:
+            pass
 
     def stop(self):
         self.running = False
@@ -537,6 +567,7 @@ class UI(QMainWindow):
     clearSignal = pyqtSignal()
     useoldSignal = pyqtSignal()
     scaleSignal = pyqtSignal()
+    changeRasterAlgorithm = pyqtSignal()
 
     def __init__(self):
 
@@ -642,7 +673,8 @@ class UI(QMainWindow):
 
         # Change raster algorithm
         self.dropbox = self.findChild(QComboBox, "alg_choice")
-        self.dropbox.currentIndexChanged.connect(self.change_raster_algorithm)
+        self.dropbox.currentIndexChanged.connect(changeRasterAlgorithm.emit)
+        self.changeRasterAlgorithm.connect(self. ghgh
 
         # Raster control and parameters
         self.preview_button = self.findChild(QPushButton, "path_button")
@@ -997,36 +1029,6 @@ class UI(QMainWindow):
         self.worker.raster_manager.update_angle_step_change(self.delalpha_step.value())
         dela_step_new = self.worker.raster_manager.angle_step_change
         print("Updated angle step change from {:.4f} to {:.4f}".format(dela_step_old, dela_step_new))
-        
-    def change_raster_algorithm(self):
-        try:
-            algo = self.dropbox.currentText()
-            print(f"Changed algorithm to {algo}.")
-
-            device_x = self.worker.raster_manager.device_x
-            device_y = self.worker.raster_manager.device_y
-            boundaries = self.worker.raster_manager.boundaries
-            xstep = self.worker.raster_manager.xstep_size
-            ystep = self.worker.raster_manager.ystep_size
-            x_direction = self.worker.raster_manager.x_direction
-            y_direction = self.worker.raster_manager.y_direction
-        
-            if algo == "Square Raster X":
-                self.worker.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries, xstep, ystep)
-            elif algo == "Square Raster Y":
-                self.worker.raster_manager = ArrayPatternRasterY(device_x, device_y, boundaries, xstep, ystep)
-            elif algo == "Spiral Raster":
-                self.worker.raster_manager = SpiralRaster(device_x, device_y, boundaries, radius, step, alpha, del_alpha)
-            elif algo == "Convex Hull Raster":
-                self.worker.raster_manager = ConvexHullRaster(device_x, device_y, boundaries, xstep, ystep)
-            else:
-                raise RuntimeWarning
-        
-            self.worker.raster_manager.x_direction = x_direction
-            self.worker.raster_manager.y_direction = y_direction
-        
-        except AttributeError:
-            pass
         
     def update_backlash_x(self):
         xback = Decimal(float(self.backlash_x.value()))
