@@ -442,30 +442,10 @@ p, li { white-space: pre-wrap; }
          </property>
         </widget>
        </item>
-       <item row="23" column="1">
-        <widget class="QPushButton" name="convex_hull_reset">
-         <property name="styleSheet">
-          <string notr="true">background-color: rgb(255, 251, 181);</string>
-         </property>
-         <property name="text">
-          <string>Reset Convex Hull</string>
-         </property>
-        </widget>
-       </item>
        <item row="24" column="0">
         <widget class="QLabel" name="label_8">
          <property name="text">
           <string/>
-         </property>
-        </widget>
-       </item>
-       <item row="24" column="1">
-        <widget class="QPushButton" name="convex_hull">
-         <property name="styleSheet">
-          <string notr="true">background-color: rgb(255, 251, 181);</string>
-         </property>
-         <property name="text">
-          <string>Compute Convex Hull</string>
          </property>
         </widget>
        </item>

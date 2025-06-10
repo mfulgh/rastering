@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QApplication, QPushButton, \
     QDoubleSpinBox, QComboBox, QGridLayout, QWidget, QVBoxLayout, \
-    QGraphicsPixmapItem, QLabel, QSlider
+    QGraphicsPixmapItem, QLabel, QSlider, QMessageBox
 from PyQt5 import QtCore, QtGui, uic
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QPainter, QPixmap, QImage, QTransform
@@ -24,7 +24,7 @@ import os
 ## Camera stuff
 from pyueye import ueye
 
-def start_server(app_worker):
+def start_server(app_worker, raster_controls):
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:55535")
@@ -36,8 +36,7 @@ def start_server(app_worker):
             connection = data['connection']
             if action == 'PROGRAM_VALUE':
                 setpoint_value = data['value']
-                SET_VALUE(connection, setpoint_value)
-                return json.dumps({"status": "SUCCESS"})
+                return SET_VALUE(connection, setpoint_value)
             elif action == 'CHECK_VALUE':
                 current_value = GET_VALUE(connection)
                 return json.dumps({"status": "SUCCESS", "value": current_value})
@@ -49,12 +48,51 @@ def start_server(app_worker):
 
     def SET_VALUE(connection, setpoint_value):
         worker = app_worker
+        ui = raster_controls
+        timeout_sec = 60
         if connection == "laser_raster_x_coord":
+            start= time.time()
             worker.raster_manager.moveX(float(setpoint_value))
+            while time.time() - start < timeout_sec:
+                if worker.raster_manager.device_x.taskComplete == True:
+                    return json.dumps({"status": "SUCCESS"})
+                time.sleep(0.1)
+            print("Timeout error when moving motor")
+            return json.dumps({"status": "ERROR"})
+        
         elif connection == "laser_raster_y_coord":
+            start= time.time()
             worker.raster_manager.moveY(float(setpoint_value))
-        elif connection == "move_to_next":
-            worker.do_work()
+            while time.time() - start < timeout_sec:
+                if worker.raster_manager.device_y.taskComplete == True:
+                    return json.dumps({"status": "SUCCESS"})
+                time.sleep(0.1)
+            print("Timeout error when moving motor")
+            return json.dumps({"status": "ERROR"})
+        
+        elif connection == "arm_raster":
+            print("Received command to arm")
+            ui.worker.running = True
+            ui.thread = QThread(parent=ui)
+            ui.worker.moveToThread(ui.thread)
+            ui.thread.finished.connect(ui.worker.stop)
+            ui.thread.start()
+
+        elif connection == "move_to_next":    
+            ui.worker.manual_work()
+            start= time.time()
+            while time.time() - start < timeout_sec:
+                    if worker.raster_manager.device_x.taskComplete and worker.raster_manager.device_y.taskComplete:
+                        return json.dumps({"status": "SUCCESS"})
+                    time.sleep(0.1)
+            print("Timeout error when moving motor")
+            return json.dumps({"status": "ERROR"})
+        
+        elif connection == "disarm_raster":
+            print("Received command to disarm")
+            ui.worker.running = False
+            ui.worker.mpl_instance.needs_update = True
+            ui.thread.stop()
 
     def GET_VALUE(connection):
         worker = app_worker
@@ -175,7 +213,9 @@ class MplCanvas(QWidget):
         self.scatter.addPoints([self.marker[0]], [self.marker[1]], brush=pg.mkBrush("#ff0000"))
 
     def update_frame(self):
-
+        """
+        Removes old image and adds new image to canvas
+        """
         # Capture a frame from the camera
         img = self.cam.get_data(self.mem_ptr, self.width, self.height, self.bitspixel, self.lineinc, copy=True)
 
@@ -202,12 +242,7 @@ class MplCanvas(QWidget):
         # Add in the new frame
         self.img = QGraphicsPixmapItem(pixmap)
         self.img.setScale(self.scale)
-        self.img.setRotation(90)
-        
-        pixmap_width = pixmap.width() * self.scale
-        pixmap_height = pixmap.height() * self.scale
-
-        self.img.setPos(pixmap_height, 0)
+        self.img.setRotation(0)
 
         self.img.setOpacity(0.6)
         self.plotWidget.addItem(self.img)
@@ -218,8 +253,6 @@ class MplCanvas(QWidget):
         """
         # Store the pixel positions as pairs
         self.pixel_positions.append((pixel_x, pixel_y))
-
-        # Debug: Print the values
         print(f"Recorded Pixel: ({pixel_x}, {pixel_y})")
 
         # If we have two scale points, calculate the transformation matrix
@@ -227,10 +260,12 @@ class MplCanvas(QWidget):
             self.calculate_scale()
 
     def calculate_scale(self):
+        """
+        Calculate scaling for the image, based on user's input
+        """
         (x1_pixel, y1_pixel), (x2_pixel, y2_pixel) = self.pixel_positions
-        self.scale = self.scale/abs((x1_pixel - x2_pixel))
+        self.scale = self.scale/np.sqrt((x1_pixel - x2_pixel)**2 + (y1_pixel - y2_pixel)**2)
         self.newScale.emit(self.scale)
-        #self.newScale.connect(self.ui.scaler.setValue(self.scale))
 
     def scaling(self):
         self.pixel_positions.clear()
@@ -290,10 +325,6 @@ class MplCanvas(QWidget):
     def plot_motor_bounds(self):
         pass
 
-    def clear(self):
-        self.scatter.clear()
-        self.hull_scatter.clear()
-
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
         super().__init__(parent)
@@ -334,10 +365,9 @@ class Worker(QObject):
              
         self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries=boundaries, xstep=xstep, ystep=ystep)
         
-    def do_work(self):
-        #while self.running:
-            #time.sleep(0.5)
-        if self.running:
+    def auto_work(self):
+        while self.running:
+            time.sleep(0.5)
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
             last_y = self.raster_manager.get_current_y()
@@ -346,12 +376,23 @@ class Worker(QObject):
             self.mpl_instance.needs_update = False
             self.mpl_instance.update_plot()
                     
-        #self.finished.emit()
+        self.finished.emit()
 
-    def change_raster_algorithm(self):
+    def manual_work(self):
+        if self.running:
+            time.sleep(0.5)
+            self.raster_manager.update_motors()
+            last_x = self.raster_manager.get_current_x()
+            last_y = self.raster_manager.get_current_y()
+            self.mpl_instance.marker[0] = last_x
+            self.mpl_instance.marker[1] = last_y
+            self.mpl_instance.needs_update = False
+            self.mpl_instance.update_plot()
+
+    def change_raster_algorithm(self, ind):
         try:
-            algo = self.dropbox.currentText()
-            print(f"Changed algorithm to {algo}.")
+            algo = {0: "Square Raster X", 1: "Square Raster Y", 2: "Spiral Raster", 3: "Convex Hull Raster"}
+            print(f"Changed algorithm to {algo[ind]}.")
 
             device_x = self.raster_manager.device_x
             device_y = self.raster_manager.device_y
@@ -361,13 +402,13 @@ class Worker(QObject):
             x_direction = self.raster_manager.x_direction
             y_direction = self.raster_manager.y_direction
         
-            if algo == "Square Raster X":
+            if algo[ind] == "Square Raster X":
                 self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries, xstep, ystep)
-            elif algo == "Square Raster Y":
+            elif algo[ind] == "Square Raster Y":
                 self.raster_manager = ArrayPatternRasterY(device_x, device_y, boundaries, xstep, ystep)
-            elif algo == "Spiral Raster":
+            elif algo[ind] == "Spiral Raster":
                 self.raster_manager = SpiralRaster(device_x, device_y, boundaries, radius, step, alpha, del_alpha)
-            elif algo == "Convex Hull Raster":
+            elif algo[ind] == "Convex Hull Raster":
                 self.raster_manager = ConvexHullRaster(device_x, device_y, boundaries, xstep, ystep)
             else:
                 raise RuntimeWarning
@@ -375,8 +416,8 @@ class Worker(QObject):
             self.raster_manager.x_direction = x_direction
             self.raster_manager.y_direction = y_direction
         
-        except AttributeError:
-            pass
+        except Exception as e:
+            print("Error:", e)
 
     def stop(self):
         self.running = False
@@ -410,6 +451,7 @@ class CalibrationManager(QObject):
         self.calibration_updated.connect(self.raster_manager.set_calibration)
         self.calibration_updated.connect(self.canvas.plot_motor_bounds)
         self.calibration_updated.connect(self.ui.show_calibration)
+        self.calibration_updated.connect(self.ui.calibration_done_popup)
 
 
     def record_calibration_point(self, pixel_x, pixel_y):
@@ -567,7 +609,7 @@ class UI(QMainWindow):
     clearSignal = pyqtSignal()
     useoldSignal = pyqtSignal()
     scaleSignal = pyqtSignal()
-    changeRasterAlgorithm = pyqtSignal()
+    changeRasterAlgorithm = pyqtSignal(object)
     rasterPathSignal = pyqtSignal(list)
 
     def __init__(self):
@@ -578,7 +620,6 @@ class UI(QMainWindow):
         self.worker = Worker(self.canvas)
         self.calibration_manager = CalibrationManager(self.canvas, self.worker.raster_manager, self)
         
-        #self.calibration_manager.calibration_updated.connect(self.show_calibration)
         self.canvas.newScale.connect(self.show_scale)
         self.canvas.clicked.connect(self.handle_click)
 
@@ -596,6 +637,7 @@ class UI(QMainWindow):
         self.calibrate = self.findChild(QPushButton, "calibrateButton")
         self.calibrate.clicked.connect(self.calibrateSignal.emit)
         self.calibrateSignal.connect(self.calibration_manager.calibration)
+        self.calibrateSignal.connect(self.calibration_popup)
 
         # Reset Calibration Button
         self.reset = self.findChild(QPushButton, "resetButton")
@@ -609,8 +651,8 @@ class UI(QMainWindow):
 
         # Reset Plot Button
         self.clear = self.findChild(QPushButton, "clearAll")
-        self.clear.clicked.connect(self.clearSignal.emit)
-        self.clearSignal.connect(self.canvas.clear)
+        self.clear.clicked.connect(self.clearall)
+        self.clear.clicked.connect(self.reset_hull)
 
         # Calibration Values
         self.yoffsetvalue = self.findChild(QDoubleSpinBox, "yoffset")
@@ -674,7 +716,8 @@ class UI(QMainWindow):
 
         # Change raster algorithm
         self.dropbox = self.findChild(QComboBox, "alg_choice")
-        self.dropbox.currentIndexChanged.connect(self.worker.change_raster_algorithm)
+        self.dropbox.currentIndexChanged.connect(self.changeRasterAlgorithm.emit)
+        self.changeRasterAlgorithm.connect(self.worker.change_raster_algorithm)
 
         # Raster control and parameters
         self.preview_button = self.findChild(QPushButton, "path_button")
@@ -721,17 +764,40 @@ class UI(QMainWindow):
         self.backlash_y = self.findChild(QDoubleSpinBox, "y_backlash")
         self.backlash_x.valueChanged.connect(self.update_backlash_x)
         self.backlash_y.valueChanged.connect(self.update_backlash_y)
-
-        # Convex hull algorithm
-        self.convexhull = self.findChild(QPushButton, "convex_hull")
-        self.resetconvexhull = self.findChild(QPushButton, "convex_hull_reset")
-        self.convexhull.clicked.connect(self.define_hull)
-        self.resetconvexhull.clicked.connect(self.reset_hull)
-
-        # Connect convex raster path signal to raster manager
-        self.rasterPathSignal.connect(self.worker.raster_manager.update_motors)
         
+
         self.show()
+        time.sleep(0.5)
+        self.startup_popup()
+
+    def clearall(self):
+        self.canvas.scatter.setData([])
+        self.canvas.hull.clear()
+        self.canvas.hull_scatter.setData([])
+        if self.have_paths and hasattr(self.worker.mpl_instance, 'scatter_path'):
+            self.worker.mpl_instance.scatter_path.setData([])
+            self.have_paths = False
+
+    def startup_popup(self):
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Welcome!")
+        msg.setText("Warning: motors are not calibrated")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+
+    def calibration_popup(self):
+        msg = QMessageBox()
+        msg.setWindowTitle("Calibration Message")
+        msg.setText("Your next two on screen clicks will be recorded for calibration.\nPlease move laser to two arbitrary points, and click on laser location each time.")
+        msg.setStandardButtons(QMessageBox.Ok)
+        close = msg.exec_()
+
+    def calibration_done_popup(self):
+        msg = QMessageBox()
+        msg.setWindowTitle("Calibration Complete")
+        msg.setText("To reset calibration, hit Reset")
+        msg.setStandardButtons(QMessageBox.Ok)
+        close = msg.exec_()
 
     def show_calibration(self, calibration_manager):
         self.yoffsetvalue.setValue(calibration_manager.offset_y)
@@ -740,7 +806,7 @@ class UI(QMainWindow):
         self.xscalevalue.setValue(calibration_manager.scale_x)
 
     def show_scale(self, val):
-        self.scale.setValue(val)
+        self.scaler.setValue(val)
 
     def get_worker(self):
         return self.worker
@@ -748,34 +814,11 @@ class UI(QMainWindow):
     def handle_click(self, x, y):
         self.x.setValue(x)
         self.y.setValue(y)
-    
-    def define_hull(self, hull):
-        hull = self.canvas.hull
-        self.have_hull = True
-        if not isinstance(hull, Delaunay):
-            self.conv_hull = Delaunay(hull)
-        print(f"Convex hull defined by {len(self.canvas.hull)} the points:")
-        path = []
-        x = np.arange(self.canvas.xmin, self.canvas.xmax, self.xstep.value())
-        y = np.arange(self.canvas.ymin, self.canvas.ymax, self.ystep.value())
-        for i in range(len(x)):
-            for j in range(len(y)):
-                path.append([x[i], y[j]])
-        self.raster = [[], []]
-        for pt in path:
-            if self.in_hull(pt):
-                self.raster[0].append(pt[0])
-                self.raster[1].append(pt[1])
-        #self.worker.raster_manager.rasterpath = self.raster
-        self.rasterPathSignal.emit(self.raster)
-        self.canvas.convexpath = self.hull_scatter = pg.ScatterPlotItem(size=10)
-        self.canvas.convexpath.addPoints(self.raster[0], self.raster[1], brush=pg.mkBrush("#dd68e3"))
-        self.canvas.plotWidget.addItem(self.canvas.convexpath)
 
     def reset_hull(self):
         if self.have_hull:
             self.canvas.hull = []
-            self.canvas.hull_scatter.clear()
+            self.canvas.hull_scatter.setData([])
             self.canvas.convexpath.clear()
             self.canvas.xmin = 100
             self.canvas.xmax = -100
@@ -783,10 +826,6 @@ class UI(QMainWindow):
             self.canvas.ymax = -100
             self.worker.raster_manager.rasterpath = [[],[]]
             self.have_hull = False
-
-    def in_hull(self, pts):
-        return self.conv_hull.find_simplex(pts) >= 0
-
 
     def display_limit(self):
         global boundaries
@@ -800,8 +839,8 @@ class UI(QMainWindow):
     def preview_raster(self):
         print("Previewing the path")
         if self.have_paths:
-            self.worker.mpl_instance.scatter_path.clear()
-        path = self.worker.raster_manager.preview_path()
+            self.worker.mpl_instance.scatter_path.setData([])
+        path = self.worker.raster_manager.preview_path(self)
         self.worker.mpl_instance.scatter_path = pg.ScatterPlotItem(size=10)
         self.worker.mpl_instance.plotWidget.addItem(self.worker.mpl_instance.scatter_path)
         self.worker.mpl_instance.scatter_path.addPoints(path[0], path[1])
@@ -836,9 +875,9 @@ class UI(QMainWindow):
             self.worker.raster_manager.homeX()
             last_x = self.worker.raster_manager.get_current_x()
             last_y = self.worker.raster_manager.get_current_y()
-            self.worker.mpl_instance.marker[0] = last_x
-            self.worker.mpl_instance.marker[1] = last_y
-            self.worker.mpl_instance.update_plot()
+            # self.worker.mpl_instance.marker[0] = last_x
+            # self.worker.mpl_instance.marker[1] = last_y
+            # self.worker.mpl_instance.update_plot()
         except AttributeError:
             return False
   
@@ -848,9 +887,9 @@ class UI(QMainWindow):
             self.worker.raster_manager.homeY()
             last_x = self.worker.raster_manager.get_current_x()
             last_y = self.worker.raster_manager.get_current_y()
-            self.worker.mpl_instance.marker[0] = last_x
-            self.worker.mpl_instance.marker[1] = last_y
-            self.worker.mpl_instance.update_plot()
+            # self.worker.mpl_instance.marker[0] = last_x
+            # self.worker.mpl_instance.marker[1] = last_y
+            # self.worker.mpl_instance.update_plot()
         except AttributeError:
             return False
     
@@ -1050,7 +1089,7 @@ class UI(QMainWindow):
         self.thread = QThread(parent=self)
         self.stop_signal.connect(self.worker.stop)
         self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.do_work)
+        self.thread.started.connect(self.worker.auto_work)
         self.thread.finished.connect(self.worker.stop)
         
         self.thread.start()
@@ -1069,7 +1108,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)    
     UIWindow = UI()
 
-    server_thread = threading.Thread(target=start_server, args=(UIWindow.get_worker(),))
+    server_thread = threading.Thread(target=start_server, args=(UIWindow.get_worker(),UIWindow,))
     server_thread.daemon = True
     server_thread.start()
 
