@@ -637,7 +637,7 @@ p, li { white-space: pre-wrap; }
        <double>0.010000000000000</double>
       </property>
       <property name="value">
-       <double>0.300000000000000</double>
+       <double>0.000000000000000</double>
       </property>
      </widget>
      <widget class="QDoubleSpinBox" name="dx_button">
@@ -691,7 +691,7 @@ p, li { white-space: pre-wrap; }
        <double>0.010000000000000</double>
       </property>
       <property name="value">
-       <double>0.300000000000000</double>
+       <double>0.000000000000000</double>
       </property>
      </widget>
      <widget class="QPushButton" name="preview_pos">
@@ -1290,6 +1290,15 @@ p, li { white-space: pre-wrap; }
         <height>22</height>
        </rect>
       </property>
+      <property name="decimals">
+       <number>3</number>
+      </property>
+      <property name="minimum">
+       <double>-10.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.010000000000000</double>
+      </property>
      </widget>
      <widget class="QDoubleSpinBox" name="xoffset">
       <property name="geometry">
@@ -1299,6 +1308,15 @@ p, li { white-space: pre-wrap; }
         <width>91</width>
         <height>22</height>
        </rect>
+      </property>
+      <property name="decimals">
+       <number>3</number>
+      </property>
+      <property name="minimum">
+       <double>-10.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.010000000000000</double>
       </property>
      </widget>
      <widget class="QDoubleSpinBox" name="yscale">
@@ -1310,6 +1328,15 @@ p, li { white-space: pre-wrap; }
         <height>22</height>
        </rect>
       </property>
+      <property name="decimals">
+       <number>3</number>
+      </property>
+      <property name="minimum">
+       <double>-10.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.010000000000000</double>
+      </property>
      </widget>
      <widget class="QDoubleSpinBox" name="yoffset">
       <property name="geometry">
@@ -1319,6 +1346,15 @@ p, li { white-space: pre-wrap; }
         <width>91</width>
         <height>22</height>
        </rect>
+      </property>
+      <property name="decimals">
+       <number>3</number>
+      </property>
+      <property name="minimum">
+       <double>-10.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.010000000000000</double>
       </property>
      </widget>
      <widget class="QLabel" name="label_3">

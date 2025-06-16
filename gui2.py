@@ -137,6 +137,8 @@ class MplCanvas(QWidget):
         self.plotWidget.addItem(self.crosshair_h, ignoreBounds=True)
         self.proxy = pg.SignalProxy(self.plotWidget.scene().sigMouseMoved, rateLimit=60, slot=self.mouseMoved)
 
+        self.count = 0
+
         ## Camera initialization
         self.cam = ueye
         self.hcam = self.cam.HIDS(0)
@@ -216,6 +218,8 @@ class MplCanvas(QWidget):
         """
         Removes old image and adds new image to canvas
         """
+        # print("updating frame ", self.count)
+        # self.count += 1
         # Capture a frame from the camera
         img = self.cam.get_data(self.mem_ptr, self.width, self.height, self.bitspixel, self.lineinc, copy=True)
 
@@ -367,7 +371,7 @@ class Worker(QObject):
         
     def auto_work(self):
         while self.running:
-            time.sleep(0.5)
+            time.sleep(2)
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
             last_y = self.raster_manager.get_current_y()
@@ -380,7 +384,6 @@ class Worker(QObject):
 
     def manual_work(self):
         if self.running:
-            time.sleep(0.5)
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
             last_y = self.raster_manager.get_current_y()
@@ -401,6 +404,11 @@ class Worker(QObject):
             ystep = self.raster_manager.ystep_size
             x_direction = self.raster_manager.x_direction
             y_direction = self.raster_manager.y_direction
+            
+            scale_x = self.raster_manager.scale_x
+            scale_y = self.raster_manager.scale_y
+            offset_x = self.raster_manager.offset_x
+            offset_y = self.raster_manager.offset_y
         
             if algo[ind] == "Square Raster X":
                 self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries, xstep, ystep)
@@ -412,6 +420,11 @@ class Worker(QObject):
                 self.raster_manager = ConvexHullRaster(device_x, device_y, boundaries, xstep, ystep)
             else:
                 raise RuntimeWarning
+            
+            self.raster_manager.scale_x = scale_x
+            self.raster_manager.scale_y = scale_y
+            self.raster_manager.offset_x = offset_x
+            self.raster_manager.offset_y = offset_y
         
             self.raster_manager.x_direction = x_direction
             self.raster_manager.y_direction = y_direction
@@ -533,9 +546,9 @@ class CalibrationManager(QObject):
         print(f"Scale X: {self.scale_x}, Scale Y: {self.scale_y}")
         print(f"Offset X: {self.offset_x}, Offset Y: {self.offset_y}")
 
-        self.canvas.calibration_scale = (scale_x, scale_y)
-        self.canvas.calibration_offset = (offset_x, offset_y)
-        self.canvas.calibrated = True
+        # self.canvas.calibration_scale = (scale_x, scale_y)
+        # self.canvas.calibration_offset = (offset_x, offset_y)
+        # self.canvas.calibrated = True
 
         # ## Find the minimum and maximum motor positions
         # self.xposmax = self.raster_manager.device_x.GetMaxPosition()
@@ -658,22 +671,22 @@ class UI(QMainWindow):
         self.yoffsetvalue = self.findChild(QDoubleSpinBox, "yoffset")
         self.yoffsetvalue.setValue(0)
         self.yoffsetvalue.valueChanged.connect(self.yoffsetChanged.emit)
-        self.yoffsetChanged.connect(self.calibration_manager.setyoffset)
+        # self.yoffsetChanged.connect(self.calibration_manager.setyoffset)
 
         self.yscalevalue = self.findChild(QDoubleSpinBox, "yscale")
         self.yscalevalue.setValue(1)
         self.yscalevalue.valueChanged.connect(self.yscaleChanged.emit)
-        self.yoffsetChanged.connect(self.calibration_manager.setyscale)
+        # self.yoffsetChanged.connect(self.calibration_manager.setyscale)
 
         self.xoffsetvalue = self.findChild(QDoubleSpinBox, "xoffset")
         self.xoffsetvalue.setValue(0)
         self.xoffsetvalue.valueChanged.connect(self.xoffsetChanged.emit)
-        self.yoffsetChanged.connect(self.calibration_manager.setxoffset)
+        # self.yoffsetChanged.connect(self.calibration_manager.setxoffset)
 
         self.xscalevalue = self.findChild(QDoubleSpinBox, "xscale")
         self.xscalevalue.setValue(1)
         self.xscalevalue.valueChanged.connect(self.xscaleChanged.emit)
-        self.yoffsetChanged.connect(self.calibration_manager.setxscale)
+        # self.yoffsetChanged.connect(self.calibration_manager.setxscale)
     
         # Image Scaler
         self.scaler = self.findChild(QDoubleSpinBox, "scaleImage")
@@ -765,6 +778,8 @@ class UI(QMainWindow):
         self.backlash_x.valueChanged.connect(self.update_backlash_x)
         self.backlash_y.valueChanged.connect(self.update_backlash_y)
         
+        self.update_backlash_x()
+        self.update_backlash_y()
 
         self.show()
         time.sleep(0.5)
@@ -805,7 +820,7 @@ class UI(QMainWindow):
         self.xoffsetvalue.setValue(calibration_manager.offset_x)
         self.xscalevalue.setValue(calibration_manager.scale_x)
 
-    def show_scale(self, val):
+    def show_scale(self, val): 
         self.scaler.setValue(val)
 
     def get_worker(self):
@@ -841,6 +856,12 @@ class UI(QMainWindow):
         if self.have_paths:
             self.worker.mpl_instance.scatter_path.setData([])
         path = self.worker.raster_manager.preview_path(self)
+
+        print("Path previewed, x scale = ", self.worker.raster_manager.scale_x)
+        print("Path previewed, y scale = ", self.worker.raster_manager.scale_y)
+        print("Path previewed, x offset = ", self.worker.raster_manager.offset_x)
+        print("Path previewed, y offset = ", self.worker.raster_manager.offset_y)
+
         self.worker.mpl_instance.scatter_path = pg.ScatterPlotItem(size=10)
         self.worker.mpl_instance.plotWidget.addItem(self.worker.mpl_instance.scatter_path)
         self.worker.mpl_instance.scatter_path.addPoints(path[0], path[1])
@@ -955,7 +976,7 @@ class UI(QMainWindow):
 
     def manual_move(self):
         try:
-            print("Received command to move to {:.4f}, {:.4f}".format(self.x.value(),  self.y.value()))
+            print("Received command to move to ({:.4f}, {:.4f})".format(self.x.value(),  self.y.value()))
             self.worker.raster_manager.moveTo(self.x.value(), self.y.value())
             last_x = self.worker.raster_manager.get_current_x()
             last_y = self.worker.raster_manager.get_current_y()
@@ -1091,15 +1112,20 @@ class UI(QMainWindow):
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.auto_work)
         self.thread.finished.connect(self.worker.stop)
+
+        print("Starting Auto Raster, x scale = ", self.worker.raster_manager.scale_x)
+        print("Starting Auto Raster, y scale = ", self.worker.raster_manager.scale_y)
+        print("Starting Auto Raster, x offset = ", self.worker.raster_manager.offset_x)
+        print("Starting Auto Raster, y offset = ", self.worker.raster_manager.offset_y)
         
         self.thread.start()
 
 if __name__ == '__main__':
     global boundaries, xstep, ystep, saving_dir
     
-    boundaries = (-3.0, 3.0, -3.0, 3.0)
-    xstep = 0.01
-    ystep = 0.01
+    boundaries = (0.0, 12.0, 0.0, 12.0)
+    xstep = 0.05
+    ystep = 0.05
     radius = 0.05 
     step = 0.008
     alpha = 0.1

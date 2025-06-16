@@ -197,7 +197,7 @@ class RasterManager:
 
     motorextrema = pyqtSignal(float,float,float,float)
 
-    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 3.0, 0.0, 3.0), xstep=0.01, ystep=0.01, 
+    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 12.0, 0.0, 12.0), xstep=0.05, ystep=0.05, 
                  radius=0.05, step=0.008, alpha=0.1, del_alpha=0.05):
 
         self.device_x = device_x
@@ -237,15 +237,21 @@ class RasterManager:
 
     def set_calibration(self, calibration_manager):
         self.scale_x = calibration_manager.scale_x
+        print("Scale x received as ", calibration_manager.scale_x)
         self.scale_y = calibration_manager.scale_y
+        print("Scale y received as ", calibration_manager.scale_y)
         self.offset_x = calibration_manager.offset_x
+        print("Offset x received as ", calibration_manager.offset_x)
         self.offset_y = calibration_manager.offset_y
+        print("Offset y received as ", calibration_manager.offset_y)
 
     def moveTo(self, xpos, ypos):
         
         ## Scale the x and y positions
         xpos_ = self.scale_x * xpos + self.offset_x
         ypos_ = self.scale_y * ypos + self.offset_y
+
+        print("Moving to motor position ({:.4f}, {:.4f})".format(xpos_, ypos_))
 
         if self.x_available and self.y_available and self.pos_allowed(xpos, ypos):
             new_x = self.device_x.move_to(xpos_)
@@ -379,7 +385,7 @@ class RasterManager:
 class ArrayPatternRasterX(RasterManager):
     """ Raster in a square array pattern along X-axis """
 
-    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(-3.0, 3.0, -3.0, 3.0),
+    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 12.0, 0.0, 12.0),
                  xstep=0.01, ystep=0.01):
         super().__init__(device_x, device_y, boundaries, xstep, ystep)
         self.x_direction = 1
@@ -416,7 +422,7 @@ class ArrayPatternRasterX(RasterManager):
 class ArrayPatternRasterY(RasterManager):
     """ Raster in a square array pattern along Y-axis """
 
-    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 3.0, 0.0, 3.0),     
+    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 12.0, 0.0, 12.0),     
                  xstep=0.01, ystep=0.01):
         super().__init__(device_x, device_y, boundaries, xstep, ystep)
         self.x_direction = 1
@@ -453,7 +459,7 @@ class ArrayPatternRasterY(RasterManager):
 class SpiralRaster(RasterManager):
     """ Raster in a spiral pattern """
     
-    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 3.0, 0.0, 3.0), 
+    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 12.0, 0.0, 12.0), 
                  radius=0.05, step=0.008, del_alpha=0.1, del_alpha_step=0.05):
         super().__init__(device_x, device_y, boundaries, radius, step, del_alpha, del_alpha_step)
         xpos = self.get_current_x()
@@ -497,7 +503,7 @@ class SpiralRaster(RasterManager):
 class ConvexHullRaster(RasterManager):
     """ Raster in a within convex hull bounds """
 
-    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 3.0, 0.0, 3.0),
+    def __init__(self, device_x: Motor, device_y: Motor, boundaries=(0.0, 12.0, 0.0, 12.0),
                  xstep=0.01, ystep=0.01):
         super().__init__(device_x, device_y, boundaries, xstep, ystep)
         self.index = 0
