@@ -107,6 +107,69 @@ def start_server(app_worker, raster_controls):
         response = handle_request(request)
         socket.send(response.encode())
 
+class CameraThread(QThread):
+    new_frame = pyqtSignal(np.ndarray)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.running = True
+
+        self.counter = 0
+        self.time_emitted = 0
+
+        ## Camera initialization
+        self.hcam = ueye.HIDS(0)
+        self.ret = ueye.is_InitCamera(self.hcam, None)
+   
+        # set the color mode.
+        self.ret = ueye.is_SetColorMode(self.hcam, ueye.IS_CM_BGR8_PACKED)
+
+        # set the region of interest (Camera dependent).
+        self.width = 1280
+        self.height = 1024
+        rect_aoi = ueye.IS_RECT()
+        rect_aoi.s32X = ueye.int(0)
+        rect_aoi.s32Y = ueye.int(0)
+        rect_aoi.s32Width = ueye.int(self.width)
+        rect_aoi.s32Height = ueye.int(self.height)
+        ueye.is_AOI(self.hcam, ueye.IS_AOI_IMAGE_SET_AOI, rect_aoi, ueye.sizeof(rect_aoi))
+
+        # allocate memory for live view.
+        self.mem_ptr = ueye.c_mem_p()
+        self.mem_id = ueye.int()
+        self.bitspixel = 24 # for colormode = IS_CM_BGR8_PACKED
+        self.ret = ueye.is_AllocImageMem(self.hcam, self.width, self.height, self.bitspixel,
+                                    self.mem_ptr, self.mem_id)
+                
+        # set active memory region.
+        self.ret = ueye.is_SetImageMem(self.hcam, self.mem_ptr, self.mem_id)
+
+        # continuous capture to memory.
+        self.ret = ueye.is_CaptureVideo(self.hcam, ueye.IS_DONT_WAIT)
+        self.lineinc = self.width * int((self.bitspixel + 7) / 8)
+
+        # set initial exposure
+        time_exposure_ = 3
+        time_exposure = ueye.double(time_exposure_)
+        self.ret = ueye.is_Exposure(self.hcam, ueye.IS_EXPOSURE_CMD_SET_EXPOSURE, time_exposure, ueye.sizeof(time_exposure))
+
+    def run(self):
+        while self.running:
+                # Capture a frame from the camera
+            img = ueye.get_data(self.mem_ptr, self.width, self.height, self.bitspixel, self.lineinc, copy=True)
+
+            # Turn it into something readable
+            img = np.reshape(img, (self.height,self.width,3))
+            
+            self.msleep(100)
+
+            self.counter += 1
+
+            self.new_frame.emit(img)
+
+    def stop(self):
+        self.running = False
+
 class MplCanvas(QWidget):
     clicked = pyqtSignal(float, float)
     newScale = pyqtSignal(float)
@@ -139,48 +202,6 @@ class MplCanvas(QWidget):
 
         self.count = 0
 
-        ## Camera initialization
-        self.cam = ueye
-        self.hcam = self.cam.HIDS(0)
-        self.cam.is_InitCamera(self.hcam, None)
-   
-        # set the color mode.
-        self.cam.is_SetColorMode(self.hcam, ueye.IS_CM_BGR8_PACKED)
-
-        # set the region of interest (Camera dependent).
-        self.width = 1280
-        self.height = 1024
-        rect_aoi = self.cam.IS_RECT()
-        rect_aoi.s32X = self.cam.int(0)
-        rect_aoi.s32Y = self.cam.int(0)
-        rect_aoi.s32Width = self.cam.int(self.width)
-        rect_aoi.s32Height = self.cam.int(self.height)
-        self.cam.is_AOI(self.hcam, self.cam.IS_AOI_IMAGE_SET_AOI, rect_aoi, self.cam.sizeof(rect_aoi))
-
-        # allocate memory for live view.
-        self.mem_ptr = self.cam.c_mem_p()
-        self.mem_id = self.cam.int()
-        self.bitspixel = 24 # for colormode = IS_CM_BGR8_PACKED
-        self.cam.is_AllocImageMem(self.hcam, self.width, self.height, self.bitspixel,
-                                    self.mem_ptr, self.mem_id)
-                
-        # set active memory region.
-        self.cam.is_SetImageMem(self.hcam, self.mem_ptr, self.mem_id)
-
-        # continuous capture to memory.
-        self.cam.is_CaptureVideo(self.hcam, self.cam.IS_DONT_WAIT)
-        self.lineinc = self.width * int((self.bitspixel + 7) / 8)
-
-        # set initial exposure
-        time_exposure_ = 3
-        time_exposure = self.cam.double(time_exposure_)
-        self.cam.is_Exposure(self.hcam, self.cam.IS_EXPOSURE_CMD_SET_EXPOSURE, time_exposure, self.cam.sizeof(time_exposure))
-
-        # Set up a timer to update the camera feed at regular intervals
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_frame)
-        self.timer.start(100) ## ms between each photo
-
         # set up initial scaling factor
         self.scale = 0.002
 
@@ -200,6 +221,14 @@ class MplCanvas(QWidget):
         self.calibration_scale = (1.0, 1.0)
         self.calibration_offset = (0.0, 0.0)
 
+        # Set up imaging thread
+        self.cam_thread = CameraThread() 
+        self.cam_thread.new_frame.connect(self.update_frame) 
+        self.cam_thread.start()
+
+        self.time_plotted = time.time()
+
+
     def mouseMoved(self, e):
         pos = e[0]
         if self.plotWidget.sceneBoundingRect().contains(pos):
@@ -214,18 +243,10 @@ class MplCanvas(QWidget):
         self.plotWidget.getPlotItem().listDataItems()[0].setPen("#540808")
         self.scatter.addPoints([self.marker[0]], [self.marker[1]], brush=pg.mkBrush("#ff0000"))
 
-    def update_frame(self):
+    def update_frame(self, image_array):
         """
         Removes old image and adds new image to canvas
         """
-        # print("updating frame ", self.count)
-        # self.count += 1
-        # Capture a frame from the camera
-        img = self.cam.get_data(self.mem_ptr, self.width, self.height, self.bitspixel, self.lineinc, copy=True)
-
-        # Turn it into something readable
-        img = np.reshape(img, (self.height,self.width,3))
-        image_array = img
         if image_array.ndim == 3 and image_array.shape[2] == 3:  # RGB
             h, w, c = image_array.shape
             q_image = QImage(image_array.data, w, h, 3 * w, QImage.Format_RGB888)
@@ -247,9 +268,11 @@ class MplCanvas(QWidget):
         self.img = QGraphicsPixmapItem(pixmap)
         self.img.setScale(self.scale)
         self.img.setRotation(0)
-
         self.img.setOpacity(0.6)
+
         self.plotWidget.addItem(self.img)
+        print("Time to update: ", time.time() - self.time_plotted)  
+        self.time_plotted = time.time()
 
     def record_scale_point(self, pixel_x, pixel_y):
         """
@@ -281,13 +304,13 @@ class MplCanvas(QWidget):
 
     def setexposure(self, value):
         time_exposure = value
-        time_exposure_ = self.cam.double(time_exposure)
-        self.cam.is_Exposure(self.hcam, self.cam.IS_EXPOSURE_CMD_SET_EXPOSURE, time_exposure_, self.cam.sizeof(time_exposure_))
+        time_exposure_ = ueye.double(time_exposure)
+        ueye.is_Exposure(self.cam_thread.hcam, ueye.IS_EXPOSURE_CMD_SET_EXPOSURE, time_exposure_, ueye.sizeof(time_exposure_))
 
     def closeEvent(self, event):
         # Make sure to release the camera when the widget is closed
-        self.cam.is_StopLiveVideo(self.hcam, self.cam.IS_FORCE_VIDEO_STOP)
-        self.cam.is_ExitCamera(self.hcam)
+        ueye.is_StopLiveVideo(self.hcam, ueye.IS_FORCE_VIDEO_STOP)
+        ueye.is_ExitCamera(self.hcam)
         event.accept()
 
     def display_bounds(self, x1, y1, x2, y2):
@@ -328,7 +351,6 @@ class MplCanvas(QWidget):
 
     def plot_motor_bounds(self):
         pass
-
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
         super().__init__(parent)
