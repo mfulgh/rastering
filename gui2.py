@@ -8,6 +8,7 @@ import pyqtgraph as pg
 
 import sys
 import time
+from datetime import datetime
 import numpy as np
 
 from PIL import Image as Image_pil
@@ -228,6 +229,8 @@ class MplCanvas(QWidget):
 
         self.time_plotted = time.time()
 
+        self.oldframe = 0
+
 
     def mouseMoved(self, e):
         pos = e[0]
@@ -260,6 +263,8 @@ class MplCanvas(QWidget):
         # Convert the QImage to a QPixmap and set it as the label's pixmap
         pixmap = QPixmap.fromImage(q_image)
 
+        oldimage = self.img
+
         if self.img is not None:
             # Remove the old image (if exists) from the plot
             self.plotWidget.getPlotItem().removeItem(self.img)
@@ -267,12 +272,15 @@ class MplCanvas(QWidget):
         # Add in the new frame
         self.img = QGraphicsPixmapItem(pixmap)
         self.img.setScale(self.scale)
-        self.img.setRotation(0)
-        self.img.setOpacity(0.6)
+        self.img.setRotation(180)
+        # self.img.setOpacity(0.6)
+
+        if oldimage == self.img:
+            print("Same frame again")
 
         self.plotWidget.addItem(self.img)
-        print("Time to update: ", time.time() - self.time_plotted)  
-        self.time_plotted = time.time()
+        # print("Time to update: ", time.time() - self.time_plotted)  
+        # self.time_plotted = time.time()
 
     def record_scale_point(self, pixel_x, pixel_y):
         """
@@ -384,6 +392,9 @@ class Worker(QObject):
         self.mpl_instance = mpl_instance
         self.running = False
 
+        self.log_data = []
+        self.log_path = None
+
         global boundaries, xstep, ystep, saving_dir
 
         device_x = KCube("27268551", name="X")
@@ -392,15 +403,38 @@ class Worker(QObject):
         self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries=boundaries, xstep=xstep, ystep=ystep)
         
     def auto_work(self):
+        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.log_path = os.path.join(os.getcwd(), f"raster_log_{timestamp_str}.json")
+        self.log_data = []
+
+        print(f"[LOGGING] Started logging to: {self.log_path}")
+
         while self.running:
+
             time.sleep(2)
+
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
             last_y = self.raster_manager.get_current_y()
+
+            self.log_data.append({
+            "timestamp": time.time(),
+            "x": last_x,
+            "y": last_y
+            })
+
             self.mpl_instance.marker[0] = last_x
             self.mpl_instance.marker[1] = last_y
             self.mpl_instance.needs_update = False
             self.mpl_instance.update_plot()
+
+        # Save JSON to disk
+        try:
+            with open(self.log_path, 'w') as f:
+                json.dump(self.log_data, f, indent=2)
+            print(f"[LOGGING] Saved to {self.log_path}")
+        except Exception as e:
+            print(f"[LOGGING ERROR] Could not write to {self.log_path}: {e}")
                     
         self.finished.emit()
 
@@ -657,6 +691,9 @@ class UI(QMainWindow):
         
         self.canvas.newScale.connect(self.show_scale)
         self.canvas.clicked.connect(self.handle_click)
+
+        self.log_file = None
+        self.log_writer = None
 
         self.have_paths = False
         self.have_moves = False
