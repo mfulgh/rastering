@@ -272,7 +272,7 @@ class MplCanvas(QWidget):
         # Add in the new frame
         self.img = QGraphicsPixmapItem(pixmap)
         self.img.setScale(self.scale)
-        self.img.setRotation(180)
+        self.img.setRotation(0*180)
         # self.img.setOpacity(0.6)
 
         if oldimage == self.img:
@@ -359,6 +359,8 @@ class MplCanvas(QWidget):
 
     def plot_motor_bounds(self):
         pass
+
+
 class RectItem(pg.GraphicsObject):
     def __init__(self, rect, parent=None):
         super().__init__(parent)
@@ -402,6 +404,8 @@ class Worker(QObject):
              
         self.raster_manager = ArrayPatternRasterX(device_x, device_y, boundaries=boundaries, xstep=xstep, ystep=ystep)
         
+        self.sleep_timer = 2
+
     def auto_work(self):
         timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.log_path = os.path.join(os.getcwd(), f"raster_log_{timestamp_str}.json")
@@ -411,7 +415,7 @@ class Worker(QObject):
 
         while self.running:
 
-            time.sleep(2)
+            time.sleep(self.sleep_timer)
 
             self.raster_manager.update_motors()
             last_x = self.raster_manager.get_current_x()
@@ -496,6 +500,9 @@ class Worker(QObject):
         last_y = self.raster_manager.get_current_y()
         self.mpl_instance.marker[0] = last_x
         self.mpl_instance.marker[1] = last_y
+
+    def setsleep(self, value):
+        self.sleep_timer = value
 
 class CalibrationManager(QObject):
     calibration_updated = pyqtSignal(object)
@@ -668,6 +675,7 @@ class CalibrationManager(QObject):
 class UI(QMainWindow):
     stop_signal = pyqtSignal()
     exposureChanged = pyqtSignal(float)
+    sleepSignal = pyqtSignal(float)
     scaleChanged = pyqtSignal(float)
     xscaleChanged = pyqtSignal(float)
     yscaleChanged = pyqtSignal(float)
@@ -758,6 +766,13 @@ class UI(QMainWindow):
         self.exposure.setValue(3)
         self.exposure.valueChanged.connect(self.exposureChanged.emit)
         self.exposureChanged.connect(self.canvas.setexposure)
+
+        # Set the sleep timer
+        self.sleep_value = self.findChild(QDoubleSpinBox, "sleepTimer")
+        self.sleep_value.setValue(2)
+        self.sleep_value.valueChanged.connect(self.sleepSignal.emit)
+        self.sleepSignal.connect(self.worker.setsleep)
+
 
         # Set the scale
         self.scaleButton = self.findChild(QPushButton, "scaleButton")
